@@ -59,6 +59,15 @@ func (c *Client) StartClientLoop() {
 	}
 	defer file.Close()
 
+	// Una sola conexión para todo el flujo
+	if err := c.createClientSocket(); err != nil {
+		return
+	}
+	defer func() {
+		c.conn.Close()
+		log.Infof("action: close_connection | result: success | client_id: %v", c.config.ID)
+	}()
+
 	scanner := bufio.NewScanner(file)
 	batch := make([]string, 0, c.config.BatchMaxAmount)
 
@@ -122,23 +131,15 @@ func (c *Client) StartClientLoop() {
 }
 
 func (c *Client) sendBatch(batch []string) error {
-	if err := c.createClientSocket(); err != nil {
-		return err
-	}
-
 	payload := "B|" + strings.Join(batch, "\n")
 
 	if err := sendMessage(c.conn, payload); err != nil {
 		log.Errorf("action: apuesta_enviada | result: fail | client_id: %v | error: %v",
 			c.config.ID, err)
-		c.conn.Close()
 		return err
 	}
 
 	response, err := recvMessage(c.conn)
-	c.conn.Close()
-	log.Infof("action: close_connection | result: success | client_id: %v", c.config.ID)
-
 	if err != nil {
 		log.Errorf("action: apuesta_enviada | result: fail | client_id: %v | error: %v",
 			c.config.ID, err)
@@ -157,14 +158,6 @@ func (c *Client) sendBatch(batch []string) error {
 }
 
 func (c *Client) sendFin() error {
-	if err := c.createClientSocket(); err != nil {
-		return err
-	}
-	defer func() {
-		c.conn.Close()
-		log.Infof("action: close_connection | result: success | client_id: %v", c.config.ID)
-	}()
-
 	if err := sendMessage(c.conn, "F"); err != nil {
 		log.Errorf("action: fin_envio | result: fail | client_id: %v | error: %v",
 			c.config.ID, err)
@@ -184,21 +177,13 @@ func (c *Client) consultarGanadores(sigChan chan os.Signal) {
 		default:
 		}
 
-		if err := c.createClientSocket(); err != nil {
-			return
-		}
-
 		if err := sendMessage(c.conn, "G"+c.config.ID); err != nil {
 			log.Errorf("action: consulta_ganadores | result: fail | client_id: %v | error: %v",
 				c.config.ID, err)
-			c.conn.Close()
 			return
 		}
 
 		response, err := recvMessage(c.conn)
-		c.conn.Close()
-		log.Infof("action: close_connection | result: success | client_id: %v", c.config.ID)
-
 		if err != nil {
 			log.Errorf("action: consulta_ganadores | result: fail | client_id: %v | error: %v",
 				c.config.ID, err)

@@ -35,18 +35,22 @@ class Server:
 
     def __handle_client_connection(self, client_sock):
         try:
-            msg = recv_message(client_sock)
+            while True:
+                msg = recv_message(client_sock)
 
-            if msg.startswith("B|"):
-                self._handle_bets(client_sock, msg[2:])
-            elif msg.startswith("F"):
-                self._handle_fin(client_sock)
-            elif msg.startswith("G"):
-                agency_id = msg[1:]
-                self._handle_ganadores(client_sock, agency_id)
-            else:
-                logging.error("action: receive_message | result: fail | reason: unknown message type")
-                send_message(client_sock, 'ERROR')
+                if msg.startswith("B|"):
+                    self._handle_bets(client_sock, msg[2:])
+                elif msg.startswith("F"):
+                    self._handle_fin(client_sock)
+                    # sin break — el cliente sigue en la misma conexión para mandar G
+                elif msg.startswith("G"):
+                    agency_id = msg[1:]
+                    self._handle_ganadores(client_sock, agency_id)
+                    break  # después de ganadores cerramos
+                else:
+                    logging.error("action: receive_message | result: fail | reason: unknown message type")
+                    send_message(client_sock, 'ERROR')
+                    break
 
         except (OSError, ValueError) as e:
             logging.error(f"action: receive_message | result: fail | error: {e}")
@@ -97,7 +101,7 @@ class Server:
 
         response = "\n".join(winners)
         send_message(client_sock, response)
-        logging.info(f'action: ganadores_enviados | result: success | agency: {agency_id} | cantidad: {len(winners)}')
+        logging.info(f'action: consulta_ganadores | result: success | cant_ganadores: {len(winners)} | source: client{agency_id}')
 
     def __accept_new_connection(self):
         logging.info('action: accept_connections | result: in_progress')
