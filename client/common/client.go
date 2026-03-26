@@ -77,20 +77,17 @@ func (c *Client) StartClientLoop() {
 			if line == "" {
 				continue
 			}
-			// CSV format: first_name,last_name,document,birthdate,number
 			fields := strings.Split(line, ",")
 			if len(fields) != 5 {
 				log.Errorf("action: parse_bet | result: fail | client_id: %v | line: %v",
 					c.config.ID, line)
 				continue
 			}
-			// Serialize as: agency|first_name|last_name|document|birthdate|number
 			bet := fmt.Sprintf("%s|%s|%s|%s|%s|%s",
 				c.config.ID, fields[0], fields[1], fields[2], fields[3], fields[4])
 			batch = append(batch, bet)
 		}
 
-		// Send batch if full or if EOF and batch has content
 		if len(batch) == c.config.BatchMaxAmount || (!hasLine && len(batch) > 0) {
 			if err := c.sendBatch(batch); err != nil {
 				return
@@ -101,16 +98,27 @@ func (c *Client) StartClientLoop() {
 		if !hasLine {
 			break
 		}
-
-		select {
-		case <-sigChan:
-			c.shutdown()
-			return
-		default:
-		}
 	}
 
-	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+	select {
+	case <-sigChan:
+		c.shutdown()
+		return
+	default:
+	}
+
+	if err := c.sendFin(); err != nil {
+		return
+	}
+
+	select {
+	case <-sigChan:
+		c.shutdown()
+		return
+	default:
+	}
+
+	c.consultarGanadores(sigChan)
 }
 
 func (c *Client) sendBatch(batch []string) error {
@@ -118,7 +126,7 @@ func (c *Client) sendBatch(batch []string) error {
 		return err
 	}
 
-	payload := strings.Join(batch, "\n")
+	payload := "B|" + strings.Join(batch, "\n")
 
 	if err := sendMessage(c.conn, payload); err != nil {
 		log.Errorf("action: apuesta_enviada | result: fail | client_id: %v | error: %v",
@@ -146,6 +154,75 @@ func (c *Client) sendBatch(batch []string) error {
 	}
 
 	return nil
+}
+
+func (c *Client) sendFin() error {
+	if err := c.createClientSocket(); err != nil {
+		return err
+	}
+	defer func() {
+		c.conn.Close()
+		log.Infof("action: close_connection | result: success | client_id: %v", c.config.ID)
+	}()
+
+	if err := sendMessage(c.conn, "F"); err != nil {
+		log.Errorf("action: fin_envio | result: fail | client_id: %v | error: %v",
+			c.config.ID, err)
+		return err
+	}
+
+	log.Infof("action: fin_envio | result: success | client_id: %v", c.config.ID)
+	return nil
+}
+
+func (c *Client) consultarGanadores(sigChan chan os.Signal) {
+	for {
+		select {
+		case <-sigChan:
+			c.shutdown()
+			return
+		default:
+		}
+
+		if err := c.createClientSocket(); err != nil {
+			return
+		}
+
+		if err := sendMessage(c.conn, "G"+c.config.ID); err != nil {
+			log.Errorf("action: consulta_ganadores | result: fail | client_id: %v | error: %v",
+				c.config.ID, err)
+			c.conn.Close()
+			return
+		}
+
+		response, err := recvMessage(c.conn)
+		c.conn.Close()
+		log.Infof("action: close_connection | result: success | client_id: %v", c.config.ID)
+
+		if err != nil {
+			log.Errorf("action: consulta_ganadores | result: fail | client_id: %v | error: %v",
+				c.config.ID, err)
+			return
+		}
+
+		if response == "NOT_READY" {
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		cant := 0
+		if response != "" {
+			winners := strings.Split(strings.TrimSpace(response), "\n")
+			for _, w := range winners {
+				if strings.TrimSpace(w) != "" {
+					cant++
+				}
+			}
+		}
+
+		log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %v", cant)
+		return
+	}
 }
 
 func (c *Client) shutdown() {
