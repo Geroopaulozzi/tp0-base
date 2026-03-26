@@ -210,3 +210,65 @@ chmod +x validar-echo-server.sh
 
 El resultado fue `action: test_echo_server | result: success`, confirmando que el servidor
 respondió correctamente al mensaje enviado desde el contenedor efímero.
+
+## Ejercicio 4
+
+### Objetivo
+El objetivo de este ejercicio fue modificar el cliente y el servidor para que ambos terminen
+de forma graceful al recibir la señal SIGTERM, cerrando todos los file descriptors abiertos
+y logueando cada cierre antes de que el proceso principal termine.
+
+### Servidor (Python)
+
+Se realizaron cambios en `server/main.py` y `server/common/server.py`.
+
+En `main.py` se registró un handler para SIGTERM usando el módulo `signal`:
+```python
+signal.signal(signal.SIGTERM, lambda sig, frame: server.stop())
+```
+
+En `server.py` se agregó el método `stop()`, que setea una flag `_running = False` y cierra
+el server socket. Cerrar el socket hace que la llamada bloqueante `accept()` lance una
+`OSError`, lo que permite salir del loop sin necesidad de esperar una nueva conexión.
+
+El cierre del server socket y de cada client socket se loguea explícitamente antes de
+que el proceso termine.
+
+### Cliente (Go)
+
+Se modificó `client/common/client.go`.
+
+Se creó un canal que escucha SIGTERM usando `os/signal`:
+```go
+sigChan := make(chan os.Signal, 1)
+signal.Notify(sigChan, syscall.SIGTERM)
+```
+
+Se agregaron dos puntos de chequeo con `select` dentro del loop:
+- Uno al inicio de cada iteración, antes de abrir la conexión.
+- Uno en reemplazo del `time.Sleep`, de forma que si llega SIGTERM durante la espera
+  entre mensajes, el cliente responde de inmediato sin tener que esperar a que el
+  sleep termine.
+
+En ambos casos se llama a `shutdown()`, que cierra la conexión abierta si la hay y
+loguea el cierre antes de terminar.
+
+### Verificación
+Para verificar el comportamiento se levantó el sistema y se ejecutó `docker compose stop -t 1`
+mientras los clientes todavía estaban corriendo su loop. Luego, antes de ejecutar el down,
+se inspeccionaron los logs con `docker compose logs`.
+
+En los logs de cada cliente se observaron los mensajes de shutdown:
+```
+action: shutdown | result: in_progress | client_id: N
+action: close_connection | result: success | client_id: N
+action: shutdown | result: success | client_id: N
+```
+
+En los logs del servidor se observó que, estando bloqueado en `accept_connections | result: in_progress`,
+el SIGTERM disparó el cierre del socket:
+```
+action: close_server_socket | result: success
+```
+
+Esto confirmó que ambos procesos liberaron sus recursos correctamente antes de terminar.
