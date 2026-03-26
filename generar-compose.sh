@@ -38,7 +38,6 @@ cat >> "$ARCHIVO_SALIDA" <<EOF
     entrypoint: /client
     environment:
       - CLI_ID=$i
-      - CLI_LOG_LEVEL=DEBUG
     volumes:
       - ./client/config.yaml:/config.yaml
     networks:
