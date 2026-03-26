@@ -415,36 +415,35 @@ La cantidad de agencias se configura mediante la variable de entorno `TOTAL_AGEN
 ## Ejercicio 8
 
 ### Objetivo
-El objetivo de este ejercicio fue modificar el servidor para que acepte y procese conexiones en paralelo mediante multithreading.
+El objetivo de este ejercicio fue modificar el servidor para que acepte y procese conexiones en paralelo mediante multithreading, y el cliente para que mantenga una única conexión persistente durante todo su flujo.
 
 ### Cambios respecto a ej7
 
-El único archivo modificado fue `server/common/server.py`. El cliente no requirió ningún cambio.
+Se modificaron `server/common/server.py` y `client/common/client.go`.
+
+#### Servidor
 
 **`run()`** — en lugar de manejar cada conexión de forma secuencial, se lanza un thread por conexión:
-
 ```python
 t = threading.Thread(target=self.__handle_client_connection, args=(client_sock,))
 t.daemon = True
 t.start()
 ```
 
-**`_store_lock`** — se agregó un lock para proteger la llamada a `store_bets(...)`, que no es thread-safe.
+**`__handle_client_connection()`** — ahora tiene un loop interno que sigue leyendo mensajes de la misma conexión hasta que el cliente termina, en lugar de procesar un solo mensaje y cerrar.
+
+**`_store_lock`** — protege la llamada a `store_bets(...)`, que no es thread-safe.
 
 **`_lock`** — protege el incremento del contador `_agencies_done` para que sea atómico entre threads.
 
-**`_sorteo_event`** — se reemplazó el flag `_sorteo_done` por un `threading.Event`. Los threads que manejan consultas de ganadores hacen `wait()` hasta que el sorteo esté listo, sin necesidad de polling desde el cliente.
+**`_sorteo_event`** — reemplaza el flag `_sorteo_done` por un `threading.Event`. Los threads que manejan consultas de ganadores hacen `wait()` hasta que el sorteo esté listo, sin polling desde el cliente.
+
+#### Cliente
+
+**Conexión persistente** — se abre una única conexión TCP al inicio de `StartClientLoop` y se usa para todo el flujo: envío de batches, envío de fin (`F`) y consulta de ganadores (`G`). La conexión se cierra con un `defer` al finalizar.
 
 ### Mecanismos de sincronización
 
 - `_lock` — garantiza que el incremento de `_agencies_done` sea atómico
 - `_store_lock` — garantiza acceso exclusivo al archivo de apuestas
 - `_sorteo_event` — sincroniza el momento del sorteo con las consultas de ganadores
-
-### Por qué no hay deadlocks
-
-Los dos locks `_lock` y `_store_lock` son independientes y nunca se adquieren juntos en el mismo thread. `_sorteo_event.wait()` no agarra ningún lock mientras espera, por lo que no puede bloquear a ningún otro thread.
-
-### GIL de Python
-
-El servidor usa `threading` en CPython, sujeto al GIL. Sin embargo, las operaciones dominantes son I/O (sockets y archivo), durante las cuales los threads liberan el GIL, permitiendo un paralelismo efectivo para este caso de uso.
