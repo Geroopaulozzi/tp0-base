@@ -272,3 +272,57 @@ action: close_server_socket | result: success
 ```
 
 Esto confirmó que ambos procesos liberaron sus recursos correctamente antes de terminar.
+
+## Ejercicio 5
+ 
+### Objetivo
+El objetivo de este ejercicio fue modificar el cliente y el servidor para implementar el caso de uso de la Lotería Nacional. El cliente emula una agencia de quiniela que envía una apuesta al servidor, y el servidor la persiste usando `store_bets(...)`.
+ 
+### Protocolo de comunicación
+ 
+Se implementó un protocolo de mensajes con **longitud prefijada**. Cada mensaje tiene la siguiente estructura:
+ 
+```
+[2 bytes: largo del payload (big-endian)][payload UTF-8]
+```
+ 
+El header de 2 bytes indica exactamente cuántos bytes conforman el payload, lo que permite que tanto el emisor como el receptor sepan cuánto leer o escribir. Esto evita los fenómenos de short read y short write.
+ 
+El payload de una apuesta tiene el siguiente formato:
+ 
+```
+agency|first_name|last_name|document|birthdate|number
+```
+ 
+Los campos están separados por `|`. El servidor responde con el mensaje `OK` en caso de éxito, usando el mismo formato de longitud prefijada.
+ 
+### Separación de responsabilidades
+ 
+Se agregaron dos módulos de protocolo, uno por componente:
+ 
+- `server/common/protocol.py`: expone `recv_message` y `send_message`, encapsulando el manejo del header y la lectura/escritura exacta de bytes.
+- `client/common/protocol.go`: expone `recvMessage` y `sendMessage` con la misma lógica en Go.
+ 
+De esta forma, `server.py` y `client.go` solo manejan lógica de negocio, delegando la serialización y el transporte al módulo de protocolo.
+ 
+### Cliente (Go)
+ 
+El cliente lee los datos de la apuesta desde variables de entorno: `NOMBRE`, `APELLIDO`, `DOCUMENTO`, `NACIMIENTO` y `NUMERO`. El agency ID se toma del campo `CLI_ID` ya existente en la configuración.
+ 
+Serializa los campos en el formato acordado, envía el mensaje al servidor y espera la confirmación. Al recibirla loguea:
+ 
+```
+action: apuesta_enviada | result: success | dni: ${DOCUMENTO} | numero: ${NUMERO}
+```
+ 
+### Servidor (Python)
+ 
+El servidor recibe el mensaje, deserializa los campos, construye un objeto `Bet` y llama a `store_bets(...)`. Luego responde con `OK` y loguea:
+ 
+```
+action: apuesta_almacenada | result: success | dni: ${document} | numero: ${number}
+```
+ 
+### Actualización de `generar-compose.sh`
+ 
+Se agregaron las variables de entorno de la apuesta (`NOMBRE`, `APELLIDO`, `DOCUMENTO`, `NACIMIENTO`, `NUMERO`) en la definición de cada cliente generado. El `DOCUMENTO` varía por cliente para distinguir las apuestas.
