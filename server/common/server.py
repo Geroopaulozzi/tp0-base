@@ -1,5 +1,7 @@
 import socket
 import logging
+from common.protocol import recv_message, send_message
+from common.utils import Bet, store_bets
 
 
 class Server:
@@ -24,12 +26,14 @@ class Server:
 
     def __handle_client_connection(self, client_sock):
         try:
-            msg = client_sock.recv(1024).rstrip().decode('utf-8')
-            addr = client_sock.getpeername()
-            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}')
-            client_sock.send("{}\n".format(msg).encode('utf-8'))
+            msg = recv_message(client_sock)
+            agency, first_name, last_name, document, birthdate, number = msg.split('|')
+            bet = Bet(agency, first_name, last_name, document, birthdate, number)
+            store_bets([bet])
+            logging.info(f'action: apuesta_almacenada | result: success | dni: {bet.document} | numero: {bet.number}')
+            send_message(client_sock, 'OK')
         except OSError as e:
-            logging.error(f"action: receive_message | result: fail | error: {e}")
+            logging.error(f"action: apuesta_almacenada | result: fail | error: {e}")
         finally:
             client_sock.close()
             logging.info("action: close_client_socket | result: success")

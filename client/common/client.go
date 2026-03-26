@@ -1,7 +1,6 @@
 package common
 
 import (
-	"bufio"
 	"fmt"
 	"net"
 	"os"
@@ -48,51 +47,57 @@ func (c *Client) StartClientLoop() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM)
 
-	for msgID := 1; msgID <= c.config.LoopAmount; msgID++ {
-		select {
-		case <-sigChan:
-			c.shutdown()
-			return
-		default:
-		}
+	nombre := os.Getenv("NOMBRE")
+	apellido := os.Getenv("APELLIDO")
+	documento := os.Getenv("DOCUMENTO")
+	nacimiento := os.Getenv("NACIMIENTO")
+	numero := os.Getenv("NUMERO")
 
-		if err := c.createClientSocket(); err != nil {
-			return
-		}
-
-		fmt.Fprintf(
-			c.conn,
-			"[CLIENT %v] Message N°%v\n",
-			c.config.ID,
-			msgID,
-		)
-
-		msg, err := bufio.NewReader(c.conn).ReadString('\n')
-		c.conn.Close()
-		log.Infof("action: close_connection | result: success | client_id: %v", c.config.ID)
-
-		if err != nil {
-			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
-				c.config.ID,
-				err,
-			)
-			return
-		}
-
-		log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
-			c.config.ID,
-			msg,
-		)
-
-		select {
-		case <-sigChan:
-			c.shutdown()
-			return
-		case <-time.After(c.config.LoopPeriod):
-		}
+	select {
+	case <-sigChan:
+		c.shutdown()
+		return
+	default:
 	}
 
-	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+	if err := c.createClientSocket(); err != nil {
+		return
+	}
+
+	payload := fmt.Sprintf("%s|%s|%s|%s|%s|%s",
+		c.config.ID, nombre, apellido, documento, nacimiento, numero,
+	)
+
+	if err := sendMessage(c.conn, payload); err != nil {
+		log.Errorf("action: apuesta_enviada | result: fail | client_id: %v | error: %v",
+			c.config.ID, err)
+		c.conn.Close()
+		return
+	}
+
+	response, err := recvMessage(c.conn)
+	c.conn.Close()
+	log.Infof("action: close_connection | result: success | client_id: %v", c.config.ID)
+
+	if err != nil {
+		log.Errorf("action: apuesta_enviada | result: fail | client_id: %v | error: %v",
+			c.config.ID, err)
+		return
+	}
+
+	if response == "OK" {
+		log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
+			documento, numero)
+	} else {
+		log.Errorf("action: apuesta_enviada | result: fail | client_id: %v | response: %v",
+			c.config.ID, response)
+	}
+
+	select {
+	case <-sigChan:
+		c.shutdown()
+	case <-time.After(c.config.LoopPeriod):
+	}
 }
 
 func (c *Client) shutdown() {
