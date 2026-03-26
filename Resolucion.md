@@ -369,3 +369,45 @@ Se eliminaron las variables de entorno de apuesta (ya no son necesarias) y se ag
 ### `config.yaml`
 
 El valor por defecto de `batch.maxAmount` se mantiene en `10`, lo que garantiza que los paquetes no excedan los 8kB considerando el tamaño máximo de cada apuesta serializada.
+
+
+## Ejercicio 7
+
+### Objetivo
+El objetivo de este ejercicio fue agregar la lógica de notificación de fin de envío y consulta de ganadores. El servidor debe esperar a que todas las agencias terminen de enviar sus apuestas antes de realizar el sorteo.
+
+### Protocolo — tipos de mensaje
+
+Se extendió el protocolo agregando un prefijo de tipo al payload. El header de 2 bytes no cambia. Los tipos de mensaje son:
+
+- `B|<apuestas>` — batch de apuestas (igual que ej6, con prefijo `B|`)
+- `F` — notificación de fin de envío de una agencia
+- `G<agency_id>` — consulta de ganadores de una agencia (ej: `G3`)
+
+El servidor responde:
+- A `B` → `OK` o `ERROR`
+- A `F` → no responde, solo registra internamente
+- A `G` → lista de DNIs ganadores separados por `\n`, string vacío si no hay ganadores, o `NOT_READY` si el sorteo aún no se realizó
+
+### Flujo del cliente
+
+Una vez enviados todos los batches, el cliente:
+1. Envía `F` al servidor para notificar que terminó
+2. Entra en un loop de polling: envía `G{id}` y si recibe `NOT_READY` espera 500ms y reintenta
+3. Al recibir la lista de ganadores loguea: `action: consulta_ganadores | result: success | cant_ganadores: ${CANT}`
+
+Cada mensaje usa una conexión separada, consistente con el diseño anterior.
+
+### Sincronización en el servidor
+
+El servidor es single-threaded y mantiene un contador `_agencies_done`. Cuando llega un mensaje `F` incrementa el contador. Al llegar a `_total_agencies` realiza el sorteo y setea el flag `_sorteo_done = True`, logueando:
+
+```
+action: sorteo | result: success
+```
+
+Cuando llega una consulta `G` y el sorteo no está listo, responde `NOT_READY` inmediatamente sin bloquearse, permitiendo que el servidor siga atendiendo otras conexiones. Esto es clave para que el diseño single-threaded funcione correctamente.
+
+### TOTAL_AGENCIES configurable
+
+La cantidad de agencias se configura mediante la variable de entorno `TOTAL_AGENCIES`, que el `generar-compose.sh` setea automáticamente con la cantidad de clientes generados. Esto permite que los tests corran con distintas cantidades de clientes sin modificar el código.
