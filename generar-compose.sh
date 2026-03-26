@@ -8,7 +8,7 @@ fi
 ARCHIVO_SALIDA="$1"
 CANT_CLIENTES="$2"
 
-if ! [[ "$CANT_CLIENTES" =~ ^[0-9]+$ ]] || [ "$CANT_CLIENTES" -le 0 ]; then
+if ! [[ "$CANT_CLIENTES" =~ ^[0-9]+$ ]] || [ "$CANT_CLIENTES" -lt 0 ]; then
   echo "Error: la cantidad de clientes debe ser un entero positivo."
   exit 1
 fi
