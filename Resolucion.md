@@ -411,3 +411,40 @@ Cuando llega una consulta `G` y el sorteo no está listo, responde `NOT_READY` i
 ### TOTAL_AGENCIES configurable
 
 La cantidad de agencias se configura mediante la variable de entorno `TOTAL_AGENCIES`, que el `generar-compose.sh` setea automáticamente con la cantidad de clientes generados. Esto permite que los tests corran con distintas cantidades de clientes sin modificar el código.
+
+## Ejercicio 8
+
+### Objetivo
+El objetivo de este ejercicio fue modificar el servidor para que acepte y procese conexiones en paralelo mediante multithreading.
+
+### Cambios respecto a ej7
+
+El único archivo modificado fue `server/common/server.py`. El cliente no requirió ningún cambio.
+
+**`run()`** — en lugar de manejar cada conexión de forma secuencial, se lanza un thread por conexión:
+
+```python
+t = threading.Thread(target=self.__handle_client_connection, args=(client_sock,))
+t.daemon = True
+t.start()
+```
+
+**`_store_lock`** — se agregó un lock para proteger la llamada a `store_bets(...)`, que no es thread-safe.
+
+**`_lock`** — protege el incremento del contador `_agencies_done` para que sea atómico entre threads.
+
+**`_sorteo_event`** — se reemplazó el flag `_sorteo_done` por un `threading.Event`. Los threads que manejan consultas de ganadores hacen `wait()` hasta que el sorteo esté listo, sin necesidad de polling desde el cliente.
+
+### Mecanismos de sincronización
+
+- `_lock` — garantiza que el incremento de `_agencies_done` sea atómico
+- `_store_lock` — garantiza acceso exclusivo al archivo de apuestas
+- `_sorteo_event` — sincroniza el momento del sorteo con las consultas de ganadores
+
+### Por qué no hay deadlocks
+
+Los dos locks `_lock` y `_store_lock` son independientes y nunca se adquieren juntos en el mismo thread. `_sorteo_event.wait()` no agarra ningún lock mientras espera, por lo que no puede bloquear a ningún otro thread.
+
+### GIL de Python
+
+El servidor usa `threading` en CPython, sujeto al GIL. Sin embargo, las operaciones dominantes son I/O (sockets y archivo), durante las cuales los threads liberan el GIL, permitiendo un paralelismo efectivo para este caso de uso.
