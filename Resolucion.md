@@ -326,3 +326,46 @@ action: apuesta_almacenada | result: success | dni: ${document} | numero: ${numb
 ### Actualización de `generar-compose.sh`
  
 Se agregaron las variables de entorno de la apuesta (`NOMBRE`, `APELLIDO`, `DOCUMENTO`, `NACIMIENTO`, `NUMERO`) en la definición de cada cliente generado. El `DOCUMENTO` varía por cliente para distinguir las apuestas.
+
+## Ejercicio 6
+
+### Objetivo
+El objetivo de este ejercicio fue modificar el cliente para que envíe las apuestas en batches, leyendo los datos desde un archivo CSV en lugar de variables de entorno. El servidor debe responder con éxito solo si todas las apuestas del batch fueron procesadas correctamente.
+
+### Cliente (Go)
+
+El cliente ya no lee una apuesta desde variables de entorno sino que abre el archivo `.data/agency-{ID}.csv` inyectado como volumen en `/data/agency-{ID}.csv`. Lee las líneas del archivo en chunks de `batch.maxAmount` (configurable desde `config.yaml`) y por cada chunk envía un mensaje al servidor con todas las apuestas del batch.
+
+El formato del payload se extiende naturalmente del ej5: cada apuesta sigue el formato `agency|first_name|last_name|document|birthdate|number` y las apuestas dentro de un batch se separan con `\n`. El header de 2 bytes con el largo del payload se mantiene igual.
+
+El cliente espera el ACK del servidor antes de enviar el siguiente batch. Si el servidor responde con error, el cliente loguea el fallo y no continúa.
+
+### Servidor (Python)
+
+El servidor recibe el mensaje, separa las apuestas por `\n`, construye la lista de objetos `Bet` y llama a `store_bets(...)` con la lista completa. Si todas las apuestas fueron procesadas correctamente responde `OK` y loguea:
+
+```
+action: apuesta_recibida | result: success | cantidad: ${N}
+```
+
+En caso de error responde `ERROR` y loguea:
+
+```
+action: apuesta_recibida | result: fail | cantidad: 0
+```
+
+### Protocolo
+
+No se modificó el formato del header (2 bytes big-endian con el largo del payload). Solo cambió el contenido del payload: en lugar de una apuesta, puede contener N apuestas separadas por `\n`. Esto es posible gracias al diseño extensible del protocolo del ej5.
+
+### `generar-compose.sh`
+
+Se eliminaron las variables de entorno de apuesta (ya no son necesarias) y se agregó el volumen del CSV para cada cliente:
+
+```yaml
+- ./.data/agency-{i}.csv:/data/agency-{i}.csv
+```
+
+### `config.yaml`
+
+El valor por defecto de `batch.maxAmount` se mantiene en `10`, lo que garantiza que los paquetes no excedan los 8kB considerando el tamaño máximo de cada apuesta serializada.

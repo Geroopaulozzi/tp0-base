@@ -27,13 +27,26 @@ class Server:
     def __handle_client_connection(self, client_sock):
         try:
             msg = recv_message(client_sock)
-            agency, first_name, last_name, document, birthdate, number = msg.split('|')
-            bet = Bet(agency, first_name, last_name, document, birthdate, number)
-            store_bets([bet])
-            logging.info(f'action: apuesta_almacenada | result: success | dni: {bet.document} | numero: {bet.number}')
+            bets = []
+            for line in msg.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                fields = line.split('|')
+                if len(fields) != 6:
+                    raise ValueError(f"Invalid bet format: {line}")
+                agency, first_name, last_name, document, birthdate, number = fields
+                bets.append(Bet(agency, first_name, last_name, document, birthdate, number))
+
+            store_bets(bets)
+            logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(bets)}')
             send_message(client_sock, 'OK')
-        except OSError as e:
-            logging.error(f"action: apuesta_almacenada | result: fail | error: {e}")
+        except (OSError, ValueError) as e:
+            logging.error(f"action: apuesta_recibida | result: fail | cantidad: 0 | error: {e}")
+            try:
+                send_message(client_sock, 'ERROR')
+            except OSError:
+                pass
         finally:
             client_sock.close()
             logging.info("action: close_client_socket | result: success")

@@ -37,13 +37,9 @@ cat >> "$ARCHIVO_SALIDA" <<EOF
     entrypoint: /client
     environment:
       - CLI_ID=$i
-      - NOMBRE=Geronimo
-      - APELLIDO=Paulozzi
-      - DOCUMENTO=41834183$i
-      - NACIMIENTO=1999-04-29
-      - NUMERO=7574
     volumes:
       - ./client/config.yaml:/config.yaml
+      - ./.data/agency-$i.csv:/data/agency-$i.csv
     networks:
       - testing_net
     depends_on:
