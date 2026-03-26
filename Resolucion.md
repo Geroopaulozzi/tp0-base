@@ -161,3 +161,52 @@ Como esos cambios se reflejaron sin volver a construir las imágenes, quedó val
 Con estos cambios, tanto el cliente como el servidor pasaron a leer sus archivos de configuración desde volúmenes montados en tiempo de ejecución.
 De esta manera, el proyecto dejó de requerir una reconstrucción de imágenes ante cambios en `config.ini` y `config.yaml`, cumpliendo con el objetivo del ejercicio 2.
 
+## Ejercicio 3
+
+### Objetivo
+El objetivo de este ejercicio fue crear un script de bash que valide el correcto funcionamiento
+del servidor utilizando `netcat`, sin instalarlo en el host y sin exponer puertos del servidor.
+
+### Implementación
+Se agregó el archivo `validar-echo-server.sh` en la raíz del proyecto.
+
+La restricción central del ejercicio es que netcat no puede instalarse en el host y no se pueden exponer puertos. La solución consiste en levantar un contenedor efímero conectado a la misma red Docker que el servidor, desde el cual se ejecuta netcat internamente.
+
+Docker Compose crea una red llamada `tp0_testing_net` (resultado de combinar el nombre del
+proyecto `tp0` con el nombre de la red `testing_net`). Desde cualquier contenedor conectado
+a esa red, el servidor es accesible mediante el hostname `server` en el puerto `12345`, sin
+necesidad de exponer ese puerto al host.
+
+El script utiliza `docker run --rm` con la imagen `alpine` (que incluye `nc` de forma nativa)
+para levantar ese contenedor efímero, enviarle un mensaje al servidor y capturar la respuesta.
+```bash
+RESPONSE=$(echo "$MESSAGE" | docker run --rm -i \
+  --network "$NETWORK" \
+  alpine \
+  sh -c "nc -w 2 $SERVER $PORT")
+```
+Dado que el servidor es un echo server, la respuesta esperada es idéntica al mensaje enviado.
+El servidor agrega un `\n` al final de cada respuesta, pero la sustitución de comandos en bash
+elimina automáticamente el newline final, por lo que la comparación es directa.
+
+Si la respuesta coincide con el mensaje enviado, el script imprime:
+
+```
+action: test_echo_server | result: success
+```
+En caso contrario:
+
+```
+action: test_echo_server | result: fail
+```
+
+### Verificación
+Para verificar el funcionamiento se levantó el sistema normalmente y luego se ejecutó el script.
+```bash
+make docker-compose-up
+chmod +x validar-echo-server.sh
+./validar-echo-server.sh
+```
+
+El resultado fue `action: test_echo_server | result: success`, confirmando que el servidor
+respondió correctamente al mensaje enviado desde el contenedor efímero.
