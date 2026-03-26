@@ -1,5 +1,6 @@
 import socket
 import logging
+import threading
 from common.protocol import recv_message, send_message
 from common.utils import Bet, store_bets, load_bets, has_won
 
@@ -13,7 +14,9 @@ class Server:
 
         self._total_agencies = total_agencies
         self._agencies_done = 0
-        self._sorteo_done = False
+        self._lock = threading.Lock()
+        self._store_lock = threading.Lock()
+        self._sorteo_event = threading.Event()
 
     def stop(self):
         self._running = False
@@ -24,7 +27,9 @@ class Server:
         while self._running:
             try:
                 client_sock = self.__accept_new_connection()
-                self.__handle_client_connection(client_sock)
+                t = threading.Thread(target=self.__handle_client_connection, args=(client_sock,))
+                t.daemon = True
+                t.start()
             except OSError:
                 break
 
@@ -62,7 +67,9 @@ class Server:
                 agency, first_name, last_name, document, birthdate, number = fields
                 bets.append(Bet(agency, first_name, last_name, document, birthdate, number))
 
-            store_bets(bets)
+            with self._store_lock:
+                store_bets(bets)
+
             logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(bets)}')
             send_message(client_sock, 'OK')
         except (OSError, ValueError) as e:
@@ -70,26 +77,27 @@ class Server:
             send_message(client_sock, 'ERROR')
 
     def _handle_fin(self, client_sock):
-        self._agencies_done += 1
-        logging.info(f'action: fin_envio | result: success | agencies_done: {self._agencies_done}')
+        with self._lock:
+            self._agencies_done += 1
+            done = self._agencies_done
 
-        if self._agencies_done == self._total_agencies:
-            self._sorteo_done = True
+        logging.info(f'action: fin_envio | result: success | agencies_done: {done}')
+
+        if done == self._total_agencies:
             logging.info('action: sorteo | result: success')
+            self._sorteo_event.set()
 
-    def _handle_ganadores(self, client_sock, agency_done):
-        if not self._sorteo_done:
-            send_message(client_sock, 'NOT_READY')
-            return
+    def _handle_ganadores(self, client_sock, agency_id):
+        self._sorteo_event.wait()
 
         winners = []
         for bet in load_bets():
-            if bet.agency == int(agency_done) and has_won(bet):
+            if bet.agency == int(agency_id) and has_won(bet):
                 winners.append(bet.document)
 
         response = "\n".join(winners)
         send_message(client_sock, response)
-        logging.info(f'action: ganadores_enviados | result: success | agency: {agency_done} | cantidad: {len(winners)}')
+        logging.info(f'action: ganadores_enviados | result: success | agency: {agency_id} | cantidad: {len(winners)}')
 
     def __accept_new_connection(self):
         logging.info('action: accept_connections | result: in_progress')
