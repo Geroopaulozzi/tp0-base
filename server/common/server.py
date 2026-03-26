@@ -101,7 +101,7 @@ class Server:
 
         response = "\n".join(winners)
         send_message(client_sock, response)
-        logging.info(f'action: consulta_ganadores | result: success | cant_ganadores: {len(winners)} | source: client{agency_id}')
+        logging.info(f'action: consulta_ganadores | result: success | cant_ganadores: {len(winners)} | agency: {agency_id}')
 
     def __accept_new_connection(self):
         logging.info('action: accept_connections | result: in_progress')
